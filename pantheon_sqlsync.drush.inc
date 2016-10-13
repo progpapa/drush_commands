@@ -42,8 +42,8 @@ function pantheon_sqlsync_drush_command() {
     'options' => array(
       'dir' => 'The dump will be saved here. Will be created if it doesn\'t exist. Defaults to the "pantheon_backup_dir" variable.',
       'site' => 'The name of the site. Defaults to the "pantheon_site_name" variable.',
-      // @todo: not yet implemented
       'local' => 'Skip getting dump from Pantheon, use the most recent local dump file.',
+      'nodrop' => 'Skip dropping all local database tables.',
     ),
   );
   return $items;
@@ -63,6 +63,7 @@ function drush_pantheon_sqlsync_validate($env = 'dev') {
 */
 function drush_pantheon_sqlsync($env = 'dev') {
   $local = drush_get_option('local', FALSE);
+  $nodrop = drush_get_option('nodrop', FALSE);
   $alias_record = drush_sitealias_get_record("@self");
   $dir = _pantheon_sqlsync_set_backup_dir($alias_record, $env, TRUE);
   $site = _pantheon_sqlsync_get_site_name(TRUE);
@@ -77,9 +78,19 @@ function drush_pantheon_sqlsync($env = 'dev') {
     $filename = _pantheon_sqlsync_get_dump_from_local($dir, $site, $env);
     drush_log(dt('Using local dump file: @dump', array('@dump' => $filename)), 'success');
   }
-  // @todo: an option to skip this would be friendly :)
-  drush_log(dt('Dropped all local database tables.'), 'success');
 
+  // Drop all local database tables unless otherwise told.
+  if ($nodrop) {
+    drush_log(dt('Skipped dropping all local database tables.'), 'success');
+  }
+  elseif (drush_shell_exec("drush sql-drop --yes")) {
+    drush_log(dt('Dropped all local database tables.'), 'success');
+  }
+  else {
+    drush_log(dt('Couldn\'t drop all local database tables.'), 'warning');
+  }
+
+  // Now import the database.
   if (drush_shell_exec("gunzip < $dir/$filename | drush sql-cli")) {
     drush_log(dt('Dump imported to Drupal'), 'success');
   }
