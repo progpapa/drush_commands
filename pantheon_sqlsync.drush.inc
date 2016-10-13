@@ -22,6 +22,14 @@
  *    - grabs the live database from pantheon for the site defined in
  *      $conf['pantheon_site_name'] and replaces your current local database
  *      with it
+ * 2. drush psqlsync --local
+ *    - grabs the most recent locally stored database dump for the dev
+ *      environment and for the site defined in $conf['pantheon_site_name']
+ *      and replaces your current local database with it
+ * 3. drush psqlsync test --nodrop
+ *    - grabs the test database from pantheon for the site defined in
+ *      $conf['pantheon_site_name'] and copies it to your current local database,
+ *      tables in the local database won't be dropped
  */
 
 
@@ -33,7 +41,8 @@ function pantheon_sqlsync_drush_command() {
     'description' => 'Grabs a database dump from Pantheon and replaces the database of the current local site.',
     'aliases' => array('psqlsync'),
     'examples' => array(
-      'drush psqlsync' => 'Get the dev database from Pantheon for the defined site and use it to replace your current local database.',
+      'drush psqlsync live' => 'Get the live database from Pantheon for the defined site and use it to replace your current local database.',
+      'drush psqlsync --local' => 'Get the most recent locally stored dump for the dev environment for the defined site and use it to replace your current local database.',
     ),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUPAL_FULL,
     'arguments' => array(
