@@ -62,25 +62,23 @@ function drush_pantheon_sqlsync_validate($env = 'dev') {
 * Callback implementation for pantheon-sqlsync command.
 */
 function drush_pantheon_sqlsync($env = 'dev') {
+  $local = drush_get_option('local', FALSE);
   $alias_record = drush_sitealias_get_record("@self");
   $dir = _pantheon_sqlsync_set_backup_dir($alias_record, $env, TRUE);
   $site = _pantheon_sqlsync_get_site_name(TRUE);
   drush_log(dt('Using environment: @env', array('@env' => $env)), 'success');
 
-  // Get the dump, die on failure.
-  $filename = "$site-$env-" . date("YmdHis") . ".sql.gz";
-  if (drush_shell_exec("terminus site backups get --element=database --to=$dir/$filename --latest --site=$site --env=$env")) {
-    drush_log(dt('Dump downloaded to @backup_dir.',
-        array('@backup_dir' => $dir)), 'success');
+  if (!$local) {
+    // Get the dump, die on failure.
+    $filename = _pantheon_sqlsync_get_dump_from_pantheon($dir, $site, $env);
   }
   else {
-    drush_set_error('PANTHEON_GET_DB',
-      dt('Couldn\'t download dump from Pantheon.'));
-    die;
+    // Find the most recent local dump.
+    $filename = _pantheon_sqlsync_get_dump_from_local($dir, $site, $env);
+    drush_log(dt('Using local dump file: @dump', array('@dump' => $filename)), 'success');
   }
-
   // @todo: an option to skip this would be friendly :)
-  drush_shell_exec("drush sql-drop --yes");
+  drush_log(dt('Dropped all local database tables.'), 'success');
 
   if (drush_shell_exec("gunzip < $dir/$filename | drush sql-cli")) {
     drush_log(dt('Dump imported to Drupal'), 'success');
@@ -124,7 +122,7 @@ function _pantheon_sqlsync_get_site_name($print_message = FALSE) {
 function _pantheon_sqlsync_set_backup_dir($alias, $env, $print_message = FALSE) {
   static $backup_dir = NULL;
   if (is_null($backup_dir)) {
-    $backup_dir_default = dirname($alias['root']) . '/backups/pantheon-dumps/' . $env . '/';
+    $backup_dir_default = dirname($alias['root']) . '/backups/pantheon-dumps/' . $env;
     $backup_dir = drush_get_option('dir',
         variable_get('pantheon_backup_dir', $backup_dir_default));
     if (!drush_mkdir($backup_dir, TRUE)) {
@@ -132,8 +130,73 @@ function _pantheon_sqlsync_set_backup_dir($alias, $env, $print_message = FALSE) 
     }
   }
   if ($print_message) {
-    drush_log(dt('Dump will be saved to: @backup_dir',
+    drush_log(dt('Dump file directory set to: @backup_dir',
         array('@backup_dir' => $backup_dir)), 'success');
   }
   return $backup_dir;
+}
+
+/**
+ * Get the dump from Pantheon, die on failure.
+ *
+ * @param string $dir
+ *   The dump will be saved here.
+ * @param string $site
+ *   The Pantheon site name.
+ * @param string $env
+ *   The environment name. Usually one of dev, test, live.
+ *
+ * @return string
+ *   The name of the dump file.
+ */
+function _pantheon_sqlsync_get_dump_from_pantheon($dir, $site, $env) {
+  $filename = "$site-$env-" . date("YmdHis") . ".sql.gz";
+  if (drush_shell_exec("terminus site backups get --element=database --to=$dir/$filename --latest --site=$site --env=$env")) {
+    drush_log(dt('Dump downloaded to @backup_dir.',
+        array('@backup_dir' => $dir)), 'success');
+  }
+  else {
+    drush_set_error('PANTHEON_GET_DB',
+      dt('Couldn\'t download dump from Pantheon.'));
+    die;
+  }
+  return $filename;
+}
+
+/**
+ * Get the most recent local dump, die on failure.
+ *
+ * @param string $dir
+ *   The dump will be saved here.
+ * @param string $site
+ *   The Pantheon site name.
+ * @param string $env
+ *   The environment name. Usually one of dev, test, live.
+ *
+ * @return string
+ *   The name of the dump file.
+ */
+function _pantheon_sqlsync_get_dump_from_local($dir, $site, $env) {
+  $mask = '/^' . $site . '-' . $env . '-(.*)\.sql\.gz$/';
+  $files = file_scan_directory($dir, $mask);
+  if (empty($files)) {
+    drush_set_error('PANTHEON_GET_DB',
+      dt('No dump files found in @dir', array('@dir' => $dir)));
+    die;
+  }
+  $max = 0;
+  $filename = '';
+  foreach ($files as $file) {
+    preg_match($mask, $file->filename, $matches);
+    if (!empty($matches[1]) && $matches[1] > $max) {
+      $max = $matches[1];
+      $filename = $file->filename;
+    }
+  }
+  if (empty($filename)) {
+    drush_set_error('PANTHEON_GET_DB',
+      dt('Couldn\'t find a dump file in @dir', array('@dir' => $dir)));
+    die;
+  }
+  return $filename;
 }
